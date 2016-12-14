@@ -64,16 +64,6 @@ test_that("spark.glm and predict", {
   rVals <- predict(glm(Sepal.Width ~ Sepal.Length + Species, data = iris), iris)
   expect_true(all(abs(rVals - vals) < 1e-6), rVals - vals)
 
-  # binomial family
-  binomialTraining <- training[training$Species %in% c("versicolor", "virginica"), ]
-  model <- spark.glm(binomialTraining, Species ~ Sepal_Length + Sepal_Width,
-    family = binomial(link = "logit"))
-  prediction <- predict(model, binomialTraining)
-  expect_equal(typeof(take(select(prediction, "prediction"), 1)$prediction), "character")
-  expected <- c("virginica", "virginica", "virginica", "versicolor", "virginica",
-    "versicolor", "virginica", "versicolor", "virginica", "versicolor")
-  expect_equal(as.list(take(select(prediction, "prediction"), 10))[[1]], expected)
-
   # poisson family
   model <- spark.glm(training, Sepal_Width ~ Sepal_Length + Species,
   family = poisson(link = identity))
@@ -138,10 +128,10 @@ test_that("spark.glm summary", {
   expect_equal(stats$aic, rStats$aic)
 
   # Test spark.glm works with weighted dataset
-  a1 <- c(0, 1, 2, 3, 4)
-  a2 <- c(5, 2, 1, 3, 2)
-  w <- c(1, 2, 3, 4, 5)
-  b <- c(1, 0, 1, 0, 0)
+  a1 <- c(0, 1, 2, 3)
+  a2 <- c(5, 2, 1, 3)
+  w <- c(1, 2, 3, 4)
+  b <- c(1, 0, 1, 0)
   data <- as.data.frame(cbind(a1, a2, w, b))
   df <- createDataFrame(data)
 
@@ -360,6 +350,8 @@ test_that("spark.kmeans", {
   # Test summary works on KMeans
   summary.model <- summary(model)
   cluster <- summary.model$cluster
+  k <- summary.model$k
+  expect_equal(k, 2)
   expect_equal(sort(collect(distinct(select(cluster, "prediction")))$prediction), c(0, 1))
 
   # Test model save/load
@@ -672,15 +664,29 @@ test_that("spark.logit", {
   expect_equal(blr_recall$recall, c(0.5000000, 0.5000000, 1.0000000, 1.0000000, 1.0000000),
                tolerance = 1e-4)
 
-  # test model save and read
-  modelPath <- tempfile(pattern = "spark-logisticRegression", fileext = ".tmp")
-  write.ml(blr_model, modelPath)
-  expect_error(write.ml(blr_model, modelPath))
-  write.ml(blr_model, modelPath, overwrite = TRUE)
-  blr_model2 <- read.ml(modelPath)
-  blr_predict2 <- collect(select(predict(blr_model2, binary_df), "prediction"))
-  expect_equal(blr_predict$prediction, blr_predict2$prediction)
-  expect_error(summary(blr_model2))
+  # Test multinomial logistic regression againt three classes
+  df <- suppressWarnings(createDataFrame(iris))
+  model <- spark.logit(df, Species ~ ., regParam = 0.5)
+  summary <- summary(model)
+  versicolorCoefsR <- c(1.52, 0.03, -0.53, 0.04, 0.00)
+  virginicaCoefsR <- c(-2.62, 0.27, -0.02, 0.16, 0.42)
+  setosaCoefsR <- c(1.10, -0.29, 0.55, -0.19, -0.42)
+  versicolorCoefs <- unlist(summary$coefficients[, "versicolor"])
+  virginicaCoefs <- unlist(summary$coefficients[, "virginica"])
+  setosaCoefs <- unlist(summary$coefficients[, "setosa"])
+  expect_true(all(abs(versicolorCoefsR - versicolorCoefs) < 0.1))
+  expect_true(all(abs(virginicaCoefsR - virginicaCoefs) < 0.1))
+  expect_true(all(abs(setosaCoefs - setosaCoefs) < 0.1))
+
+  # Test model save and load
+  modelPath <- tempfile(pattern = "spark-logit", fileext = ".tmp")
+  write.ml(model, modelPath)
+  expect_error(write.ml(model, modelPath))
+  write.ml(model, modelPath, overwrite = TRUE)
+  model2 <- read.ml(modelPath)
+  coefs <- summary(model)$coefficients
+  coefs2 <- summary(model2)$coefficients
+  expect_equal(coefs, coefs2)
   unlink(modelPath)
 
   # test prediction label as text
@@ -863,10 +869,10 @@ test_that("spark.posterior and spark.perplexity", {
 
 test_that("spark.als", {
   data <- list(list(0, 0, 4.0), list(0, 1, 2.0), list(1, 1, 3.0), list(1, 2, 4.0),
-  list(2, 1, 1.0), list(2, 2, 5.0))
+               list(2, 1, 1.0), list(2, 2, 5.0))
   df <- createDataFrame(data, c("user", "item", "score"))
   model <- spark.als(df, ratingCol = "score", userCol = "user", itemCol = "item",
-  rank = 10, maxIter = 5, seed = 0, reg = 0.1)
+                     rank = 10, maxIter = 5, seed = 0, regParam = 0.1)
   stats <- summary(model)
   expect_equal(stats$rank, 10)
   test <- createDataFrame(list(list(0, 2), list(1, 0), list(2, 0)), c("user", "item"))
@@ -921,6 +927,12 @@ test_that("spark.kstest", {
   expect_equal(stats$p.value, rStats$p.value, tolerance = 1e-4)
   expect_equal(stats$statistic, unname(rStats$statistic), tolerance = 1e-4)
   expect_match(capture.output(stats)[1], "Kolmogorov-Smirnov test summary:")
+
+  # Test print.summary.KSTest
+  printStats <- capture.output(print.summary.KSTest(stats))
+  expect_match(printStats[1], "Kolmogorov-Smirnov test summary:")
+  expect_match(printStats[5],
+               "Low presumption against null hypothesis: Sample follows theoretical distribution. ")
 })
 
 test_that("spark.randomForest", {
@@ -944,10 +956,11 @@ test_that("spark.randomForest", {
   model <- spark.randomForest(data, Employed ~ ., "regression", maxDepth = 5, maxBins = 16,
                               numTrees = 20, seed = 123)
   predictions <- collect(predict(model, data))
-  expect_equal(predictions$prediction, c(60.379, 61.096, 60.636, 62.258,
-                                         63.736, 64.296, 64.868, 64.300,
-                                         66.709, 67.697, 67.966, 67.252,
-                                         68.866, 69.593, 69.195, 69.658),
+  expect_equal(predictions$prediction, c(60.32820, 61.22315, 60.69025, 62.11070,
+                                         63.53160, 64.05470, 65.12710, 64.30450,
+                                         66.70910, 67.86125, 68.08700, 67.21865,
+                                         68.89275, 69.53180, 69.39640, 69.68250),
+
                tolerance = 1e-4)
   stats <- summary(model)
   expect_equal(stats$numTrees, 20)
