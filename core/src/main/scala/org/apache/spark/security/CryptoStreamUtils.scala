@@ -88,17 +88,6 @@ private[spark] object CryptoStreamUtils extends Logging {
   }
 
   /**
-   * Creates a new encryption key.
-   */
-  def createKey(conf: SparkConf): Array[Byte] = {
-    val keyLen = conf.get(IO_ENCRYPTION_KEY_SIZE_BITS)
-    val ioKeyGenAlgorithm = conf.get(IO_ENCRYPTION_KEYGEN_ALGORITHM)
-    val keyGen = KeyGenerator.getInstance(ioKeyGenAlgorithm)
-    keyGen.init(keyLen)
-    keyGen.generateKey().getEncoded()
-  }
-
-  /**
    * This method to generate an IV (Initialization Vector) using secure random.
    */
   private[this] def createInitializationVector(properties: Properties): Array[Byte] = {
