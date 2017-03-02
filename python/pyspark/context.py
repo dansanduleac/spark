@@ -71,6 +71,7 @@ class SparkContext(object):
     _active_spark_context = None
     _lock = RLock()
     _python_includes = None  # zip and egg files that need to be added to PYTHONPATH
+    _conda_packages = None
 
     PACKAGE_EXTENSIONS = ('.zip', '.egg', '.jar')
 
@@ -210,6 +211,8 @@ class SparkContext(object):
         self._python_includes = list()
         for path in (pyFiles or []):
             self.addPyFile(path)
+
+        self._conda_packages = list()
 
         # Deploy code dependencies set by spark-submit; these will already have been added
         # with SparkContext.addFile, so we just need to add them to the PYTHONPATH
@@ -838,6 +841,14 @@ class SparkContext(object):
         if sys.version > '3':
             import importlib
             importlib.invalidate_caches()
+
+    def addCondaPackage(self, packageMatchSpecification):
+        """
+        Add a conda `package match specification
+        <https://conda.io/docs/spec.html#build-version-spec>`_ for all tasks to be executed on
+        this SparkContext in the future.
+        """
+        self._conda_packages.append(packageMatchSpecification)
 
     def setCheckpointDir(self, dirName):
         """
