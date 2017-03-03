@@ -45,6 +45,7 @@ import org.apache.ivy.plugins.resolver.{ChainResolver, FileSystemResolver, IBibl
 import org.apache.spark._
 import org.apache.spark.api.r.RUtils
 import org.apache.spark.deploy.rest._
+import org.apache.spark.internal
 import org.apache.spark.launcher.SparkLauncher
 import org.apache.spark.util._
 
@@ -347,20 +348,30 @@ object SparkSubmit extends CommandLineUtils {
       case _ =>
     }
 
-    // If we're running a python app, set the main class to our specific python runner
+    // If we're running a python app, set the main class to our specific python runner.
+    // However, if the main class has already been set, then honor that, and save our chosen
+    // runner to sysProps.
     if (args.isPython && deployMode == CLIENT) {
+      var mainClass: String = null
       if (args.primaryResource == PYSPARK_SHELL) {
-        args.mainClass = "org.apache.spark.api.python.PythonGatewayServer"
+        mainClass = "org.apache.spark.api.python.PythonGatewayServer"
       } else {
         // If a python file is provided, add it to the child arguments and list of files to deploy.
         // Usage: PythonAppRunner <main python file> <extra python files> [app arguments]
-        args.mainClass = "org.apache.spark.deploy.PythonRunner"
+        mainClass = "org.apache.spark.deploy.PythonRunner"
         args.childArgs = ArrayBuffer(args.primaryResource, args.pyFiles) ++ args.childArgs
         if (clusterManager != YARN) {
           // The YARN backend distributes the primary file differently, so don't merge it.
           args.files = mergeFileLists(args.files, args.primaryResource)
         }
       }
+      assert(mainClass != null)
+      if (args.mainClass != null) {
+        sysProps(internal.config.INFERRED_RUNNER.key) = mainClass
+      } else {
+        args.mainClass = mainClass
+      }
+
       if (clusterManager != YARN) {
         // The YARN backend handles python files differently, so don't merge the lists.
         args.files = mergeFileLists(args.files, args.pyFiles)
@@ -412,16 +423,25 @@ object SparkSubmit extends CommandLineUtils {
       printErrorAndExit("Distributing R packages with mesos cluster is not supported.")
     }
 
-    // If we're running an R app, set the main class to our specific R runner
+    // If we're running an R app, set the main class to our specific R runner.
+    // However, if the main class has already been set, then honor that, and save our chosen
+    // runner to sysProps.
     if (args.isR && deployMode == CLIENT) {
+      var mainClass: String = null
       if (args.primaryResource == SPARKR_SHELL) {
-        args.mainClass = "org.apache.spark.api.r.RBackend"
+        mainClass = "org.apache.spark.api.r.RBackend"
       } else {
         // If an R file is provided, add it to the child arguments and list of files to deploy.
         // Usage: RRunner <main R file> [app arguments]
-        args.mainClass = "org.apache.spark.deploy.RRunner"
+        mainClass = "org.apache.spark.deploy.RRunner"
         args.childArgs = ArrayBuffer(args.primaryResource) ++ args.childArgs
         args.files = mergeFileLists(args.files, args.primaryResource)
+      }
+      assert(mainClass != null)
+      if (args.mainClass != null) {
+        sysProps(internal.config.INFERRED_RUNNER.key) = mainClass
+      } else {
+        args.mainClass = mainClass
       }
     }
 

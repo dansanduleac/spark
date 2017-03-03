@@ -93,6 +93,11 @@ package object config {
     .toSequence
     .createWithDefault(Nil)
 
+  private[spark] val INFERRED_RUNNER = ConfigBuilder("spark.submit.inferredRunner")
+    .internal()
+    .stringConf
+    .createOptional
+
   private[spark] val MAX_TASK_FAILURES =
     ConfigBuilder("spark.task.maxFailures")
       .intConf
