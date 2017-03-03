@@ -164,6 +164,23 @@ package object config {
     .stringConf
     .createOptional
 
+  private[spark] val CONDA_BOOTSTRAP_PACKAGES = ConfigBuilder("spark.conda.bootstrap_packages")
+    .stringConf
+    .toSequence
+    .createWithDefault(Nil)
+
+  private[spark] val CONDA_CHANNEL_URL = ConfigBuilder("spark.conda.channel_url")
+    .stringConf
+    .createOptional
+
+  private[spark] val CONDA_BINARY_PATH = ConfigBuilder("spark.conda.binary_path")
+    .stringConf
+    .createOptional
+
+  private[spark] val CONDA_MODULE_NAME = ConfigBuilder("spark.conda.start_module_name")
+    .stringConf
+    .createOptional
+
   // To limit memory usage, we only track information for a fixed number of tasks
   private[spark] val UI_RETAINED_TASKS = ConfigBuilder("spark.ui.retainedTasks")
     .intConf
